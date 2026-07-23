@@ -27,7 +27,6 @@ class NotificationService {
 
   }
 
-
   static final FlutterLocalNotificationsPlugin _localNotificationsPlugin = FlutterLocalNotificationsPlugin();
 
   static Future<void> initializeLocalNotifications() async {
@@ -203,8 +202,5 @@ class NotificationService {
       }
     });
   }
-
-
-
 
 }

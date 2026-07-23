@@ -2,8 +2,6 @@
 import 'package:cpy_app/constants/globals.dart';
 import 'package:cpy_app/features/strong/providers/word_reference_services.dart';
 import 'package:flutter/material.dart';
-
-import '../../../utils/globals.dart';
 import '../data/model/word_reference.dart';
 
 class WordReferenceProvider extends ChangeNotifier {
@@ -37,32 +35,6 @@ class WordReferenceProvider extends ChangeNotifier {
 
 
 
-  Future<void> getLocalWords({required BuildContext context}) async {
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _setLoading(true);
-    });
-
-    _resetError();
-
-      final response = await databaseService.getAllWords();
-
-      if (response != null) {
-
-        _localWords = response;
-
-      } else {
-        _error = "An error occurred";
-        logger.i(_error);
-      }
-
-      _setLoading(false);
-
-    logger.i(isLoading);
-
-  }
-
-
   Future<void> getWords({required BuildContext context}) async {
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -76,12 +48,12 @@ class WordReferenceProvider extends ChangeNotifier {
 
       if (response.error == null) {
 
-        _words = response.data;
+        _words = response.data
+          ?..sort((a, b) => a.word.toLowerCase().compareTo(b.word.toLowerCase())); // ✅ added
 
       } else {
         if(response.error!.isEmpty){
           _error = "No internet connection";
-
         }else{
           _error = response.error;
         }
@@ -93,6 +65,31 @@ class WordReferenceProvider extends ChangeNotifier {
     _setLoading(false);
   }
 
+
+  Future<void> getLocalWords({required BuildContext context}) async {
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _setLoading(true);
+    });
+
+    _resetError();
+
+    final response = await databaseService.getAllWords();
+
+    if (response != null) {
+
+      _localWords = response
+        ..sort((a, b) => a.word.toLowerCase().compareTo(b.word.toLowerCase())); // ✅ added
+
+    } else {
+      _error = "An error occurred";
+      logger.i(_error);
+    }
+
+    _setLoading(false);
+
+    logger.i(isLoading);
+  }
 
 
   void _setLoading(bool value) {

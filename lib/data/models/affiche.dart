@@ -61,7 +61,6 @@ class PictureVerse {
 
 }
 
-
 class PictureVerseListResponse {
   String? error;
   List<PictureVerse>? data;

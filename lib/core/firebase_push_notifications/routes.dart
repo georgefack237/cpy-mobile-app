@@ -1,9 +1,6 @@
-import 'package:cpy_app/features/home/pages/home_page.dart';
 import 'package:cpy_app/features/home/pages/main_page.dart';
-import 'package:cpy_app/features/hymns/pages/hymn_book_details_page.dart';
 import 'package:cpy_app/features/hymns/pages/hymn_books_page.dart';
 import 'package:cpy_app/features/media/pages/media_page.dart';
-import 'package:cpy_app/features/old_hymn_details.dart';
 import 'package:cpy_app/features/strong/pages/strong_page.dart';
 import 'package:flutter/material.dart';
 

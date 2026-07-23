@@ -29,7 +29,7 @@ import 'features/strong/providers/word_reference_provider.dart';
 import 'features/strong/providers/word_reference_services.dart';
 
 Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
+  SentryWidgetsFlutterBinding.ensureInitialized();
 
   await _initializeServices();
   _configureSystemUI();
@@ -40,7 +40,7 @@ Future<void> main() async {
 
   await SentryFlutter.init(
         (options) {
-      options.dsn = const String.fromEnvironment('https://ca5e0b86492c9646cdb7e7b3dd043cf6@o4510994653970432.ingest.de.sentry.io/4510994656329808');
+      options.dsn = const String.fromEnvironment('https://ca5e0b8sentry.io/4510994656329808');
       options.tracesSampleRate = 1.0;
       options.profilesSampleRate = 1.0;
     },
@@ -50,7 +50,7 @@ Future<void> main() async {
 
 Future<void> _initializeServices() async {
   await Firebase.initializeApp();
-  await PushNotificationService.instance.init();
+  //await PushNotificationService.instance.init();
   tz.initializeTimeZones();
   await initGlobals();
 }

@@ -27,10 +27,6 @@ class _HomeHymnPageState extends State<HomeHymnPage> {
 
   List<HymnSong> songs = [];
   List<HymnSong> selectedHymns = [];
-
-
-
-
   @override
   void initState() {
     selected = categories[0];
@@ -193,7 +189,7 @@ class _HomeHymnPageState extends State<HomeHymnPage> {
                       itemCount: provider.songs!.length,
                       itemBuilder: (context, index) {
                         var hymnSong = provider.songs![index];
-                        return HymnItem2(hymnSong: hymnSong);
+                        return HymnItem(hymnSong: hymnSong);
                       }),
                 ): selected!.id != 0 && selectedHymns.isNotEmpty? Expanded(
                   child: ListView.builder(
@@ -201,7 +197,7 @@ class _HomeHymnPageState extends State<HomeHymnPage> {
                       itemCount: selectedHymns.length,
                       itemBuilder: (context, index) {
                         var hymnSong = selectedHymns[index];
-                        return HymnItem2(hymnSong: hymnSong);
+                        return HymnItem(hymnSong: hymnSong);
                       }),
                 ): selected!.id != 0 && selectedHymns.isEmpty ? Container(
                     child: const Center(child: Text(""))

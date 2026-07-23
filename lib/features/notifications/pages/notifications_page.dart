@@ -77,7 +77,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
       ),
 
 
-      body: !loading ? buildContent() : Center(
+      body: !loading ? SafeArea(child: buildContent()) : Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.center,

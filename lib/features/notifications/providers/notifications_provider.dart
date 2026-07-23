@@ -40,9 +40,12 @@ class NotificationsProvider extends ChangeNotifier {
       final response = await notificationServices!.getNotifications();
 
       if (response.error == null) {
-
-        _notifications = response.data;
-
+        _notifications = response.data
+          ?..sort((a, b) {
+            if (a.createdAt == null) return 1;
+            if (b.createdAt == null) return -1;
+            return DateTime.parse(b.createdAt!).compareTo(DateTime.parse(a.createdAt!));
+          });
       } else {
         if(response.error!.isEmpty){
           _error = "No internet connection";

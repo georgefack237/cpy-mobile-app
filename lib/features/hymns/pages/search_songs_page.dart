@@ -209,7 +209,7 @@ class _SearchSongsPageState extends State<SearchSongsPage> {
                   itemCount: provider.songs!.length,
                   itemBuilder: (context, index) {
                     var hymnSong = provider.songs![index];
-                    return HymnItem2(hymnSong: hymnSong);
+                    return HymnItem(hymnSong: hymnSong);
                   }),
             ): searching ? Expanded(
               child: ListView.builder(
@@ -217,7 +217,7 @@ class _SearchSongsPageState extends State<SearchSongsPage> {
                   itemCount: searchList.length,
                   itemBuilder: (context, index) {
                     var hymnSong = searchList[index];
-                    return HymnItem2(hymnSong: hymnSong);
+                    return HymnItem(hymnSong: hymnSong);
                   }),
             ): Container(child: const Center(child: Text(""))),
           ],

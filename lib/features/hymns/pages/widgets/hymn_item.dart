@@ -11,114 +11,176 @@ import 'package:flutter/material.dart';
 import '../../../../utils/colors/light_colors.dart';
 
 
-class HymnItem extends StatelessWidget {
+class HymnItem extends StatefulWidget {
   const HymnItem({super.key, required this.hymnSong});
-  
+
   final HymnSong hymnSong;
+
+  @override
+  State<HymnItem> createState() => _HymnItemState();
+}
+
+class _HymnItemState extends State<HymnItem> {
+  // Softer, rounder card: bigger radius, gentler shadow than before.
+  static const double _cardRadius = 24;
+  static const double _thumbRadius = 16;
+
+  bool get _isAvailable => widget.hymnSong.fileSize != null;
+
+  String get _sizeLabel {
+    if (widget.hymnSong.fileSize == null) return '0.0 mb';
+    return "${double.parse("${widget.hymnSong.fileSize! / (1024 * 1024)}").toStringAsFixed(2)} mb";
+  }
+
+  String get _categoryLabel =>
+      hymnCategories.where((c) => c.id == widget.hymnSong.categoryId).first.nameFr;
+
+  /// Thumbnail tile with a small "available offline" dot floating on its
+  /// corner. Kept as a flat, low-contrast pastel tint (no gradient) so it
+  /// reads as soft rather than a bold colored block.
+  Widget _thumbnail() {
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Container(
+          width: 52,
+          height: 52,
+          decoration: BoxDecoration(
+            color: primarySoft.withOpacity(.14),
+            borderRadius: BorderRadius.circular(_thumbRadius),
+          ),
+          child: const Center(
+            child: MyIcon(size: 20, icon: MyIcons.hymnIcon, color: primary, padding: EdgeInsets.zero),
+          ),
+        ),
+        if (_isAvailable)
+          Positioned(
+            bottom: -3,
+            right: -3,
+            child: Container(
+              width: 14,
+              height: 14,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                shape: BoxShape.circle,
+              ),
+              child: Center(
+                child: Container(
+                  width: 7,
+                  height: 7,
+                  decoration: BoxDecoration(shape: BoxShape.circle, color: accent.withOpacity(.75)),
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  /// Category pill, same shape/role as MediaFileItem's "PDF / LIEN" badge —
+  /// lightened further so it sits as a soft label rather than a solid chip.
+  Widget _categoryBadge(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: primaryLight,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(
+        _categoryLabel,
+        style: TextStyle(
+          fontFamily: 'Poppins',
+          fontSize: fontSizes.font11(context.screenSize) * .85,
+          fontWeight: FontWeight.w600,
+          color: primary,
+          letterSpacing: .2,
+        ),
+      ),
+    );
+  }
+
+  Widget _trailingButton() {
+    return Container(
+      width: 34,
+      height: 34,
+      decoration: BoxDecoration(
+        color: primarySoft.withOpacity(.10),
+        shape: BoxShape.circle,
+      ),
+      child: const Center(
+        child: Icon(Icons.more_vert_outlined, size: 15, color: dark),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     return InkWell(
-      onTap: (){
-       Navigator.push(context, MaterialPageRoute(builder: (context) => HymnSongDetailsPage(hymnSong: hymnSong, songId: hymnSong.id!,)));
+      borderRadius: BorderRadius.circular(_cardRadius),
+      splashColor: primarySoft.withOpacity(.12),
+      onTap: () {
+        FocusScope.of(context).unfocus();
+        Navigator.push(
+            context,
+            MaterialPageRoute(
+                builder: (context) =>
+                    HymnSongDetailsPage(hymnSong: widget.hymnSong, songId: widget.hymnSong.id!)));
       },
-      child: Column(
-        children: [
-
-          ListTile(
-            leading: CircleAvatar(
-                backgroundColor: const Color(0xFF3B5898).withOpacity(0.05),
-              child: const MyIcon(size: 20, icon: MyIcons.hymnIcon, color:Color(0xFF3B5898), padding: EdgeInsets.all(11)),
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 7),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(_cardRadius),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(.035),
+              blurRadius: 18,
+              offset: const Offset(0, 6),
             ),
-
-            title:Text(hymnSong.title!, style: const TextStyle(fontSize: 15, fontFamily: 'Roboto')),
-
-            subtitle:Padding(
-              padding: const EdgeInsets.only(top: 2),
-              child: Text("${ hymnSong.fileSize != null ? double.parse("${(hymnSong.fileSize!)/(1024 * 1024)}").toStringAsFixed(2): 0.0 } mb | ${hymnCategories.where((c){return c.id == hymnSong.categoryId;}).first.nameFr}", style: const TextStyle(fontSize: 12, fontFamily: 'Roboto', fontWeight: FontWeight.w400, color: Colors.black54)),
+          ],
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            _thumbnail(),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    widget.hymnSong.title!,
+                    style: TextStyle(
+                      fontFamily: 'Poppins',
+                      fontSize: fontSizes.font15(context.screenSize),
+                      fontWeight: FontWeight.w600,
+                      height: 1.25,
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    _sizeLabel,
+                    style: TextStyle(
+                      fontFamily: 'Poppins',
+                      fontSize: fontSizes.font11(context.screenSize),
+                      color: muted,
+                      fontWeight: FontWeight.w400,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  _categoryBadge(context),
+                ],
+              ),
             ),
-            trailing:IconButton(onPressed: (){}, icon: const Icon(Icons.more_vert_outlined, size: 17,))
-          ),
-
-          Divider(color: const Color(0xFFf4f4f4).withOpacity(.5), thickness: 1),
-
-
-        ],
+            const SizedBox(width: 8),
+            _trailingButton(),
+          ],
+        ),
       ),
     );
   }
 }
-
-
-
-class HymnItem2 extends StatefulWidget {
-  const HymnItem2({super.key, required this.hymnSong});
-
-  final HymnSong hymnSong;
-
-
-  @override
-  State<HymnItem2> createState() => _HymnItem2State();
-}
-
-class _HymnItem2State extends State<HymnItem2> {
-
-
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-
-        Divider(color: const Color(0xFFf4f4f4).withOpacity(.5), thickness: 1),
-
-        ListTile(
-          splashColor: Colors.transparent,
-          onTap: (){
-            FocusScope.of(context).unfocus();
-            Navigator.push(context, MaterialPageRoute(builder: (context) => HymnSongDetailsPage(hymnSong:widget.hymnSong, songId: widget.hymnSong.id!,)));
-          },
-            leading: Container(
-              width: 60,
-              padding: const EdgeInsets.all(7),
-              decoration: BoxDecoration(
-                  color: Colors.black45,
-                  borderRadius: BorderRadius.circular(10)
-              ),
-              child: const Center(
-                child: MyIcon(size: 20, icon: MyIcons.hymnIcon, color:Colors.white),
-              ),
-            ),
-
-            title: Text(widget.hymnSong.title!, style: TextStyle(
-              fontSize: fontSizes.font15(context.screenSize),
-              fontFamily: 'Roboto',
-            )),
-
-            subtitle:Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4.0),
-              child: Text("${ widget.hymnSong.fileSize != null ? double.parse("${(widget.hymnSong.fileSize!)/(1024 * 1024)}").toStringAsFixed(2): 0.0 } mb | ${hymnCategories.where((c){return c.id == widget.hymnSong.categoryId;}).first.nameFr}",
-                  style:  TextStyle(
-                      fontSize: fontSizes.font12(context.screenSize),
-                      fontFamily: 'Poppins',
-                      fontWeight: FontWeight.w400,
-                      color: Colors.black54
-                  )
-              ),
-            ),
-
-            trailing: widget.hymnSong.fileSize != null ?  Container(
-              height: 7,
-              width: 7,
-              decoration:  BoxDecoration(
-                shape: BoxShape.circle,
-                color: accent.withOpacity(.6)
-              ),
-            ): const SizedBox()
-        ),
-      ],
-    );
-  }
-}
-
-

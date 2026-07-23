@@ -1,17 +1,9 @@
-import 'dart:io';
-import 'package:audioplayers/audioplayers.dart';
 import 'package:cpy_app/constants/api_constants.dart';
 import 'package:cpy_app/data/models/hymn_partition.dart';
 import 'package:cpy_app/data/models/hymn_song.dart';
 import 'package:cpy_app/utils/colors/light_colors.dart';
 import 'package:cpy_app/utils/dimensions/fontsizes.dart';
-import 'package:device_info_plus/device_info_plus.dart';
-import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/scheduler.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -20,7 +12,11 @@ import '../../../../data/test_data/hymn_test_data.dart';
 import '../../../../utils/globals.dart';
 import '../../../../utils/icons/myIcon.dart';
 import '../../../../utils/icons/my_icons.dart';
-import '../../../../utils/permissions.dart';
+import '../../../font_settings/reading_settings.dart';
+import '../../audio_player/audio_player_service.dart';
+import '../../audio_player/mini_player.dart';
+import '../../download_audio/download_controller.dart';
+import '../../download_audio/hymn_download_sheet.dart';
 import '../../providers/admin_hymn_book_provider.dart';
 import 'chord_widget.dart';
 import 'hymn_lyrics_item.dart';
@@ -35,285 +31,51 @@ class HymnSongDetailsPage extends StatefulWidget {
   State<HymnSongDetailsPage> createState() => _HymnSongDetailsPageState();
 }
 
-class _HymnSongDetailsPageState extends State<HymnSongDetailsPage> with SingleTickerProviderStateMixin{
+class _HymnSongDetailsPageState extends State<HymnSongDetailsPage> with SingleTickerProviderStateMixin {
+  late TabController _tabController;
 
+  // Audio playback now lives entirely in HymnAudioPlayerService. This
+  // page just creates one instance, hands it to the mini player widget,
+  // and reads its position/duration to drive lyric sync.
+  final HymnAudioPlayerService _audioService = HymnAudioPlayerService();
 
+  // Needed to compute sharePositionOrigin for the iOS/iPad share
+  // popover — without it, Share.shareXFiles/Share.share throws a
+  // PlatformException on iPad ("sharePositionOrigin: argument must be
+  // set"), since iOS needs a screen anchor point for the popover.
+  final GlobalKey _shareButtonKey = GlobalKey();
 
- late  TabController _tabController;
-  double _progress = 0.0;
-  bool _isDownloading = false;
-  List<FileSystemEntity> _downloadedFiles = [];
-  final AudioPlayer _audioPlayer = AudioPlayer();
-  Duration _position = Duration.zero;
-  Duration _duration = Duration.zero;
-  bool _isPlaying = false;
+  late final AdminHymnBookProvider _provider;
+  late final HymnAudioDownloadController _downloadController;
 
+  ReadingSettings _readingSettings = const ReadingSettings(fontSize: 16);
 
-
-
-
- late final AdminHymnBookProvider _provider;
-
-
+  static const double _cardRadius = 24;
 
   @override
   void initState() {
     super.initState();
+    ReadingSettingsStore.load().then((s) => setState(() => _readingSettings = s));
+
     _provider = Provider.of<AdminHymnBookProvider>(context, listen: false);
     _provider.getHymnSong(id: widget.songId);
-    _loadDownloadedFiles();
+
+    _downloadController = HymnAudioDownloadController(audioUrl: widget.hymnSong.audioUrl!);
+    _downloadController.loadDownloadedFiles();
 
     fromKey = noteScales[widget.hymnSong!.scaleId! - 1];
 
     _tabController = TabController(length: 2, vsync: this);
     _loadSettings();
-
-    _audioPlayer.onPositionChanged.listen((Duration p) {
-      setState(() {
-        _position = p;
-      });
-    });
-
-    _audioPlayer.onDurationChanged.listen((Duration d) {
-      setState(() {
-        _duration = d;
-      });
-    });
-
-    _audioPlayer.onPlayerComplete.listen((event) {
-      setState(() {
-        _isPlaying = false;
-        _position = Duration.zero;
-      });
-    });
   }
-
-  Future<bool> requestPermissions() async {
-    var status = await Permission.storage.request();
-    return status.isGranted;
-  }
-
-  Future<String> _getDownloadDirectory() async {
-    Directory? directory;
-    if (Platform.isAndroid) {
-      directory = await getExternalStorageDirectory();
-    } else {
-      directory = await getApplicationDocumentsDirectory();
-    }
-    return "${directory!.path}/DownloadedAudios";
-  }
-
-
-
-  Future<bool> storagePermission() async {
-    final deviceInfo = await DeviceInfoPlugin().androidInfo;
-    var storagePermission = await Permission.storage.status;
-
-
-    if (Platform.isIOS) {
-      SchedulerBinding.instance.addPostFrameCallback((_) async {
-        await showDialog(
-          barrierDismissible: false,
-
-          context: context,
-          builder: (BuildContext context) {
-            return Theme(
-              data: ThemeData(canvasColor: Colors.orange,
-                  dialogBackgroundColor: Colors.white),
-              child: AlertDialog(
-
-                titlePadding: const EdgeInsets.all(0),
-
-                shape: const RoundedRectangleBorder(
-                  borderRadius: BorderRadius.all(Radius.circular(16)),
-                ),
-                title: Container(
-                  decoration: const BoxDecoration(
-                      color: Colors.blue,
-                      borderRadius: BorderRadius.only(
-                          topRight: Radius.circular(16),
-                          topLeft: Radius.circular(16)
-                      )
-                  ),
-                  height: MediaQuery
-                      .of(context)
-                      .size
-                      .height * .21,
-                  width: MediaQuery
-                      .of(context)
-                      .size
-                      .width,
-                  child: const Center(
-                    child: MyIcon(color: Colors.white,
-                        icon: MyIcons.downloadIcon,
-                        size: 50),
-                  ),
-                ),
-                content: const Text("get permission",
-                    style: TextStyle(
-                        color: Colors.black54,
-                        fontFamily: "Poppins",
-                        fontSize: 13,
-                        fontWeight: FontWeight.w400
-                    )),
-                actions: <Widget>[
-                  TextButton(
-                    child: const Text("Not now",
-                        style: TextStyle(
-                            color: Colors.blue,
-                            fontFamily: "Poppins",
-                            fontSize: 17,
-                            fontWeight: FontWeight.w600
-                        )),
-                    onPressed: () {
-                      Navigator.of(context).pop();
-                    },
-                  ),
-
-
-                  TextButton(
-                    child: const Text("continue",
-                        style: TextStyle(
-                            color: Colors.blue,
-                            fontFamily: "Poppins",
-                            fontSize: 15,
-                            fontWeight: FontWeight.w500
-                        )),
-                    onPressed: () async {
-                      if (storagePermission.isDenied) {
-                        Navigator.of(context).pop();
-                        await MyPermissionHandler.storagePermission(context);
-                      } else if (storagePermission.isPermanentlyDenied) {
-                        Navigator.of(context).pop();
-                        openAppSettings().whenComplete(() {
-                          setState(() {
-
-                          });
-                        });
-                      }
-                    },
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      });
-
-      return false;
-    } else {
-      if (deviceInfo.version.sdkInt > 30) {
-        if (1 == 1) {
-          return true;
-        } else {
-          return false;
-        }
-      } else {
-        if (storagePermission.isGranted) {
-          return true;
-        } else {
-          SchedulerBinding.instance.addPostFrameCallback((_) async {
-            await showDialog(
-              barrierDismissible: false,
-
-              context: context,
-              builder: (BuildContext context) {
-                return Theme(
-                  data: ThemeData(canvasColor: Colors.orange,
-                      dialogBackgroundColor: Colors.white),
-                  child: AlertDialog(
-
-                    titlePadding: const EdgeInsets.all(0),
-
-                    shape: const RoundedRectangleBorder(
-                      borderRadius: BorderRadius.all(Radius.circular(16)),
-                    ),
-                    title: Container(
-                      decoration: const BoxDecoration(
-                          color: Colors.blue,
-                          borderRadius: BorderRadius.only(
-                              topRight: Radius.circular(16),
-                              topLeft: Radius.circular(16)
-                          )
-                      ),
-                      height: MediaQuery
-                          .of(context)
-                          .size
-                          .height * .21,
-                      width: MediaQuery
-                          .of(context)
-                          .size
-                          .width,
-                      child: const Center(
-                        child: MyIcon(color: Colors.white,
-                            icon: MyIcons.downloadIcon,
-                            size: 50),
-                      ),
-                    ),
-                    content: const Text("storage permission",
-                        style: TextStyle(
-                            color: Colors.black45,
-                            fontFamily: "Poppins",
-                            fontSize: 13,
-                            fontWeight: FontWeight.w400
-                        )),
-                    actions: <Widget>[
-                      TextButton(
-                        child: const Text("not now",
-                            style: TextStyle(
-                                color: Colors.blue,
-                                fontFamily: "Poppins",
-                                fontSize: 17,
-                                fontWeight: FontWeight.w600
-                            )),
-                        onPressed: () {
-                          Navigator.of(context).pop();
-                        },
-                      ),
-
-
-                      TextButton(
-                        child: const Text("Continue",
-                            style: TextStyle(
-                                color: Colors.blue,
-                                fontFamily: "Poppins",
-                                fontSize:15,
-                                fontWeight: FontWeight.w500
-                            )),
-                        onPressed: () async {
-                          if (storagePermission.isDenied) {
-                            Navigator.of(context).pop();
-                            await MyPermissionHandler.storagePermission(
-                                context);
-                          } else if (storagePermission.isPermanentlyDenied) {
-                            Navigator.of(context).pop();
-                            openAppSettings().whenComplete(() {
-                              setState(() {});
-                            });
-                          }
-                        },
-                      ),
-                    ],
-                  ),
-                );
-              },
-            );
-          });
-
-          return false;
-        }
-      }
-    }
-  }
-
 
   int currentIndex = 0;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _tabController.addListener((){
-      if(!_tabController.indexIsChanging){
+    _tabController.addListener(() {
+      if (!_tabController.indexIsChanging) {
         setState(() {
           currentIndex = _tabController.index;
         });
@@ -321,124 +83,12 @@ class _HymnSongDetailsPageState extends State<HymnSongDetailsPage> with SingleTi
     });
   }
 
-  Future<void> downloadAudioFile(String url) async {
-    bool hasPermission = await storagePermission();
-    if (!hasPermission) {
-      if (kDebugMode) {
-        print("Permission denied!");
-      }
-      return;
-    }
-
-    Dio dio = Dio();
-    setState(() {
-      _isDownloading = true;
-      _progress = 0.0;
-    });
-
-    if(await storagePermission()){
-      try {
-        String directoryPath = await _getDownloadDirectory();
-        Directory directory = Directory(directoryPath);
-        if (!directory.existsSync()) {
-          directory.createSync(recursive: true);
-        }
-
-        String fileName = widget.hymnSong.audioUrl!.split('/').last;
-        String savePath = "$directoryPath/$fileName";
-
-        await dio.download(
-          url,
-          savePath,
-          onReceiveProgress: (received, total) {
-            if (total != -1) {
-              setState(() {
-                _progress = received / total;
-                print(_progress);
-
-                if(_progress == 1){
-                  setState(() {
-                    _loadDownloadedFiles();
-
-                  });
-                }
-              });
-            }
-          },
-        );
-
-        setState(() {
-          _isDownloading = false;
-        });
-
-      } catch (e) {
-        if (kDebugMode) {
-          print("Error: $e");
-        }
-        setState(() {
-          _isDownloading = false;
-        });
-      }
-    }
-
-  }
-
-  Future<void> _loadDownloadedFiles() async {
-
-    String directoryPath = await _getDownloadDirectory();
-    Directory directory = Directory(directoryPath);
-
-    if (directory.existsSync()) {
-      setState(() {
-        _downloadedFiles = directory.listSync().where((audio){return widget.hymnSong.audioUrl!.split('/').last == audio.path.split('/').last;}).toList();
-      });
-    }else{
-      setState(() {
-
-      });
-    }
-  }
-
-
-
   @override
   void dispose() {
-    _audioPlayer.dispose();
+    _audioService.dispose();
+    _downloadController.dispose();
     super.dispose();
   }
-
-
- void _playPause(FileSystemEntity file) async {
-   if (_isPlaying) {
-     await _audioPlayer.pause();
-     setState(() {
-       _isPlaying = false;
-     });
-   } else {
-     await _audioPlayer.play(DeviceFileSource(file.path));
-     setState(() {
-       _isPlaying = true;
-     });
-   }
- }
-
- String _formatDuration(Duration duration) {
-   String twoDigits(int n) => n.toString().padLeft(2, '0');
-   final minutes = twoDigits(duration.inMinutes);
-   final seconds = twoDigits(duration.inSeconds.remainder(60));
-   return '$minutes:$seconds';
- }
-
-
-  final List<String> fontFamilies = [
-    'Roboto',
-    'Poppins',
-    'Courier New',
-    'Georgia',
-    'Times New Roman',
-  ];
-
-
 
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
@@ -449,490 +99,343 @@ class _HymnSongDetailsPageState extends State<HymnSongDetailsPage> with SingleTi
     });
   }
 
-  Future<void> _saveSettings() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setDouble('fontSizeGlobal', fontSizeGlobal);
-    await prefs.setString('fontFamilyGlobal', fontFamilyGlobal);
-    await prefs.setDouble('textOpacityGlobal', textOpacityGlobal);
+  String? fromKey;
+
+  HymnPartitionType? getPartition(int id) {
+    var l = partitionTypes.where((partition) {
+      return partition.id == id;
+    }).toList();
+    if (l.isEmpty) {
+      return null;
+    } else {
+      return l.first;
+    }
   }
 
-  void _showFontSettingsDialog() {
-    showModalBottomSheet(
-      backgroundColor: Colors.white,
+  int? find;
+
+  void _openDownloadSheet(BuildContext context) {
+    HymnDownloadActionsSheet.show(
       context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) {
-        return DraggableScrollableSheet(
-          expand: false,
-          initialChildSize: 0.8,
-          minChildSize: 0.3,
-          maxChildSize: 1,
-          builder: (context, scrollController) {
-            return StatefulBuilder(
-              builder: (context, setModalState) {
-                return SingleChildScrollView(
-                  controller: scrollController,
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 30),
-
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-
-
-                      Padding(
-                        padding: const EdgeInsets.only(left: 20, right: 0),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          crossAxisAlignment: CrossAxisAlignment.center,
-                          children: [
-
-                            Text(
-                                "Paramètres de police",
-                                style: TextStyle(
-                                    fontWeight: FontWeight.w600,
-                                    fontFamily: 'Poppins',
-                                    fontSize: fontSizes.font20(context.screenSize)
-                                )
-                            ),
-
-
-                            IconButton(onPressed: (){
-                              Navigator.pop(context);
-                            }, icon: const Icon(Icons.close))
-                          ],
-                        ),
-                      ),
-
-                      const SizedBox(height: 50),
-
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 20),
-                        child: Text(
-                            "Ajuster la taille de la police",
-                            style: TextStyle(
-                                fontWeight: FontWeight.w500,
-                                fontFamily: 'Poppins',
-                              fontSize: fontSizes.font17(context.screenSize)
-                            )),
-                      ),
-                      Slider(
-                        min: 0.5,
-                        max: 5.0,
-                        value: fontSizeGlobal,
-                        activeColor: primarySoft,
-                        label: fontSizeGlobal.toStringAsFixed(2),
-                        onChanged: (value) {
-                          setModalState(() => fontSizeGlobal = value);
-                          setState(() {});
-                          _saveSettings();
-                        },
-                      ),
-
-
-                      const SizedBox(height: 25),
-
-
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 20),
-                        child: Text(
-                            "Opacité du texte",
-                            style: TextStyle(
-                                fontWeight: FontWeight.w500,
-                                fontFamily: 'Poppins',
-                                fontSize: fontSizes.font17(context.screenSize)
-                            )
-                        ),
-                      ),
-                      Slider(
-                        activeColor: primarySoft,
-                        min: 0.0,
-                        max: 1.0,
-                        divisions: 10,
-                        value: textOpacityGlobal,
-                        label: textOpacityGlobal.toStringAsFixed(1),
-                        onChanged: (value) {
-                          setModalState(() => textOpacityGlobal = value);
-                          setState(() {});
-                          _saveSettings();
-                        },
-                      ),
-
-
-                      const SizedBox(height: 25),
-
-
-
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 20),
-                        child: Text(
-                            "Famille de polices",
-                            style: TextStyle(
-                                fontWeight: FontWeight.w500,
-                                fontFamily: 'Poppins',
-                                fontSize: fontSizes.font17(context.screenSize)
-                            )
-                        ),
-                      ),
-
-                      const SizedBox(height: 8),
-
-
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 20),
-                        child: DropdownButton<String>(
-                          dropdownColor: Colors.white,
-                          value: fontFamilyGlobal,
-                          isExpanded: true,
-                          items: fontFamilies.map((font) {
-                            return DropdownMenuItem(
-                              value: font,
-                              child: Text(font, style: TextStyle(fontFamily: font)),
-                            );
-                          }).toList(),
-                          onChanged: (value) {
-                            if (value != null) {
-                              setModalState(() => fontFamilyGlobal = value);
-                              setState(() {});
-                              _saveSettings();
-                            }
-                          },
-                        ),
-                      ),
-
-
-                      const SizedBox(height: 25),
-
-
-
-
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 20),
-                        child: Text(
-                          "Que tout ce qui respire loue Yah ! Allélou-Yah !",
-                          style: TextStyle(
-                            fontSize: FontSizes().fontReading(MediaQuery.of(context).size),
-                            fontFamily: fontFamilyGlobal,
-                            fontWeight: FontWeight.w300,
-                            color: Colors.black.withOpacity(textOpacityGlobal),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                    ],
-                  ),
-                );
-              },
-            );
-          },
+      fileType: widget.hymnSong.audioUrl!.split('.').last,
+      fileSizeMb: "${double.parse("${(widget.hymnSong.fileSize ?? 0) / (1024 * 1024)}").toStringAsFixed(2)} mb",
+      onDownload: () {
+        _downloadController.download(
+          context: context,
+          url: "${ApiConstants.storageUrl}${widget.hymnSong.audioUrl}",
         );
       },
     );
   }
 
+  /// Computes the on-screen rect of the share button so iOS/iPad has a
+  /// popover anchor point. Returns null (and lets share_plus fall back
+  /// to its own default) if the render box isn't ready yet for some
+  /// reason — safer than crashing.
+  Rect? _shareOrigin() {
+    final box = _shareButtonKey.currentContext?.findRenderObject() as RenderBox?;
+    if (box == null || !box.hasSize) return null;
+    return box.localToGlobal(Offset.zero) & box.size;
+  }
 
+  /// Builds the shareable text block (title, lyrics, chords, contact
+  /// link) once, so both share paths use the exact same content.
+  String _buildShareText() {
+    return '${widget.hymnSong.title}   \n  \n ${widget.hymnSong.partitions!.map((song) => "${getPartition(song.id)!.nameFr}\n ${song.lyrics} ${widget.hymnSong.hasOneProgression != 1 ? song.chordProgression!.map((chord) => "${chord.note}^${chord.duration}") : widget.hymnSong.singleChordProgression!.map((chord) => "${chord.note}^${chord.duration}")}\n \n")}  \n  \n chantpouryehoshoua.org';
+  }
 
- Widget _buildAudioControls() {
-   return Container(
-     margin: EdgeInsets.all(16),
-     padding: EdgeInsets.all(16),
-     decoration: BoxDecoration(
-       color: Colors.white,
-       borderRadius: BorderRadius.circular(20),
-       boxShadow: [
-         BoxShadow(
-           color: Colors.black.withOpacity(0.1),
-           blurRadius: 15,
-           offset: Offset(0, 5),
-         ),
-       ],
-     ),
-     child: Column(
-       mainAxisSize: MainAxisSize.min,
-       children: [
-         // Progress bar
-         SliderTheme(
-           data: const SliderThemeData(
-             trackHeight: 3,
-             thumbShape: RoundSliderThumbShape(enabledThumbRadius: 6),
-             overlayShape: RoundSliderOverlayShape(overlayRadius: 0),
-           ),
-           child: Slider(
-             value: _position.inSeconds.toDouble(),
-             min: 0,
-             max: _duration.inSeconds.toDouble(),
-             activeColor: primarySoft,
-             inactiveColor: Colors.grey.withOpacity(0.2),
-             onChanged: (value) {
-               _audioPlayer.seek(Duration(seconds: value.toInt()));
-             },
-           ),
-         ),
+  Future<void> _shareLyrics(BuildContext sheetContext) async {
+    Navigator.pop(sheetContext);
+    final origin = _shareOrigin();
+    await Share.share(
+      _buildShareText(),
+      subject: widget.hymnSong.title,
+      sharePositionOrigin: origin,
+    );
+  }
 
-         SizedBox(height: 8),
+  Future<void> _shareAudio(BuildContext sheetContext) async {
+    Navigator.pop(sheetContext);
+    final origin = _shareOrigin();
+    // Sharing just the file (no accompanying text) — most share
+    // targets drop a text/caption field for audio attachments anyway,
+    // so asking the person to pick "lyrics" or "audio" up front is a
+    // cleaner fix than fighting that per-app inconsistency.
+    await Share.shareXFiles(
+      [XFile(_downloadController.downloadedFiles[0].path)],
+      subject: widget.hymnSong.title,
+      sharePositionOrigin: origin,
+    );
+  }
 
-         // Controls and time
-         Row(
-           mainAxisAlignment: MainAxisAlignment.spaceBetween,
-           children: [
-             Text(
-               _formatDuration(_position),
-               style: TextStyle(fontSize: 12, color: dark),
-             ),
+  /// Share options sheet — same visual language as the actions sheet
+  /// on media items and the download sheet: drag handle, title, rows
+  /// with an icon in a soft primaryLight circle + label. Audio option
+  /// only shows when a download actually exists.
+  void _showShareSheet(BuildContext context) {
+    final hasAudio = widget.hymnSong.fileSize != null && _downloadController.hasDownload;
 
-             Container(
-               decoration: const BoxDecoration(
-                 shape: BoxShape.circle,
-                 color: accent,
-               ),
-               child: IconButton(
-                 onPressed: () => _playPause(_downloadedFiles.last),
-                 icon: Icon(
-                   _isPlaying ? Icons.pause : Icons.play_arrow,
-                   color: Colors.white,
-                   size: 24,
-                 ),
-                 padding: EdgeInsets.all(8),
-               ),
-             ),
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetContext) => Padding(
+        padding: EdgeInsets.only(
+          left: 24,
+          right: 24,
+          top: 16,
+          bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 32,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE4E4E4),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              'Partager',
+              style: TextStyle(
+                fontFamily: 'Poppins',
+                fontWeight: FontWeight.w600,
+                fontSize: fontSizes.font17(sheetContext.screenSize),
+                color: black,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              hasAudio ? 'Choisissez ce que vous voulez partager' : 'Partager les paroles de ce cantique',
+              style: TextStyle(
+                fontFamily: 'Poppins',
+                fontSize: fontSizes.font11(sheetContext.screenSize),
+                color: dark.withOpacity(.6),
+              ),
+            ),
+            const SizedBox(height: 14),
+            _shareOptionRow(
+              sheetContext,
+              icon: Icons.article_outlined,
+              label: 'Paroles',
+              subtitle: 'Texte du cantique',
+              onTap: () => _shareLyrics(sheetContext),
+            ),
+            if (hasAudio)
+              _shareOptionRow(
+                sheetContext,
+                icon: Icons.audiotrack_rounded,
+                label: 'Audio',
+                subtitle: 'Fichier téléchargé',
+                onTap: () => _shareAudio(sheetContext),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
 
-             Text(
-               _formatDuration(_duration),
-               style: TextStyle(fontSize: 12, color: dark),
-             ),
-           ],
-         ),
-       ],
-     ),
-   );
- }
+  Widget _shareOptionRow(
+      BuildContext context, {
+        required IconData icon,
+        required String label,
+        required String subtitle,
+        required VoidCallback onTap,
+      }) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(14),
+      splashColor: primarySoft.withOpacity(.2),
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: primaryLight,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(icon, size: 18, color: primary),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: fontSizes.font15(context.screenSize),
+                      fontWeight: FontWeight.w500,
+                      fontFamily: 'Poppins',
+                      color: black,
+                    ),
+                  ),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      fontSize: fontSizes.font11(context.screenSize),
+                      fontFamily: 'Poppins',
+                      color: dark.withOpacity(.55),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(Icons.chevron_right_rounded, size: 20, color: dark.withOpacity(.4)),
+          ],
+        ),
+      ),
+    );
+  }
 
- String? fromKey;
+  Widget _buildTabToggle(BuildContext context) {
+    return Container(
+      height: 44,
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF5F5F3),
+        borderRadius: BorderRadius.circular(24),
+      ),
+      child: Row(
+        children: [
+          _tabPill(context, label: 'Paroles', index: 0),
+          _tabPill(context, label: 'Accords', index: 1),
+        ],
+      ),
+    );
+  }
 
- HymnPartitionType? getPartition(int id) {
-   var l = partitionTypes.where((partition) {
-     return partition.id == id;
-   }).toList();
-   if (l.isEmpty) {
-     return null;
-   } else {
-     return l.first;
-   }
- }
+  Widget _tabPill(BuildContext context, {required String label, required int index}) {
+    final isSelected = currentIndex == index;
+    return Expanded(
+      child: GestureDetector(
+        onTap: () => _tabController.animateTo(index),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+          height: 36,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: isSelected ? primary : Colors.transparent,
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontFamily: 'Poppins',
+              fontSize: fontSizes.font13(context.screenSize),
+              fontWeight: FontWeight.w600,
+              color: isSelected ? Colors.white : dark,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
-
-int? find;
-
- void _downloadAudioModal({required BuildContext context}) {
-   showModalBottomSheet(
-       context: context,
-       backgroundColor: Colors.white,
-
-       isScrollControlled: true,
-       builder: (context) => Wrap(
-         children: [
-           SafeArea(
-             child: Padding(
-                 padding: const EdgeInsets.only(),
-                 child: Container(
-                   padding:  EdgeInsets.symmetric(
-                       horizontal: context.screenSize.width * .07,
-                       vertical: context.screenSize.width * .03
-                   ),
-                   child: Column(
-                     mainAxisAlignment: MainAxisAlignment.center,
-                     crossAxisAlignment: CrossAxisAlignment.start,
-                     children: [
-             
-                       Text('Actions',
-                           style: TextStyle(
-                               fontSize: fontSizes.font20(context.screenSize),
-                               fontWeight: FontWeight.normal,
-                               fontFamily: 'Poppins',
-                               color: black)),
-             
-             
-             
-                       const SizedBox(height: 35),
-             
-                       Row(
-                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                         children: [
-             
-                           Text('Type du fichier', style: TextStyle(
-                             fontFamily: 'Poppins',
-                             color: dark,
-                             fontSize: fontSizes.font13(context.screenSize),
-             
-                           )),
-                           Text(widget.hymnSong.audioUrl!.split('.').last)
-                         ],
-                       ),
-             
-             
-                       SizedBox(height: 25),
-             
-                       Row(
-                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                         children: [
-             
-                           Text('Taille du fichier', style: TextStyle(
-                             fontFamily: 'Poppins',
-                             color: dark,
-                             fontSize: fontSizes.font13(context.screenSize),
-                           )),
-             
-                           Text("${double.parse("${(widget.hymnSong.fileSize ?? 0)/(1024 * 1024)}").toStringAsFixed(2)} mb")
-                         ],
-                       ),
-             
-             
-             
-                       const SizedBox(height: 35),
-             
-                        InkWell(
-                         splashColor: Colors.transparent,
-                         onTap: (){
-                           downloadAudioFile("${ApiConstants.storageUrl}${widget.hymnSong.audioUrl}");
-                           Navigator.pop(context);
-                         },
-                         child: Container(
-                           padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 16),
-                           decoration:  BoxDecoration(
-                           gradient: const LinearGradient(colors: [accent, lightGradientOrange]),
-                             borderRadius: BorderRadius.circular(40)
-                           ),
-                           child: Row(
-                             mainAxisAlignment: MainAxisAlignment.center,
-                             children: [
-             
-                                const MyIcon(
-                                 icon: MyIcons.download,
-                                 size: 20,
-                                 color: Colors.white,
-                               ),
-             
-             
-                               Text('Télécharger',
-                                   style: TextStyle(
-                                       fontSize: fontSizes.font15(context.screenSize),
-                                       fontWeight: FontWeight.w400,
-                                       fontFamily: 'Poppins',
-                                       color: Colors.white)),
-                             ],
-                           ),
-                         ),
-                       )
-             
-                     ],
-                   ),
-                 )),
-           )
-         ],
-       )).then((value) {
-
-   });
- }
-
-
-
-
- @override
+  @override
   Widget build(BuildContext context) {
-
-    bool isMinor = false; // False = major scale, true = minor scale
-    bool useFrench = true; // True = French notation, False = English
-
+    bool useFrench = true;
 
     return DefaultTabController(
       length: 2,
-
       child: Scaffold(
         backgroundColor: Colors.white,
         appBar: PreferredSize(
-          preferredSize: Size(MediaQuery.of(context).size.width, 135),
+          preferredSize: Size(MediaQuery.of(context).size.width, 148),
           child: Container(
             color: Colors.white,
             padding: const EdgeInsets.only(top: 20),
             child: AppBar(
               surfaceTintColor: Colors.transparent,
               backgroundColor: Colors.white,
-              title: Text(widget.hymnSong.title!),
-              bottom: TabBar(
-                controller: _tabController,
-                onTap: (value){
-
-                },
-                tabs: const [
-                  Tab(text: 'Paroles'),
-                  Tab(text: 'Accords'),
-                ],
+              title: Text(
+                widget.hymnSong.title!,
+                style: TextStyle(
+                  fontFamily: 'Poppins',
+                  fontWeight: FontWeight.w600,
+                  fontSize: fontSizes.font17(context.screenSize),
+                  color: black,
+                ),
               ),
-
+              bottom: PreferredSize(
+                preferredSize: const Size.fromHeight(60),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                  child: _buildTabToggle(context),
+                ),
+              ),
               actions: [
-
-
-                if(_downloadedFiles.isEmpty && widget.hymnSong.fileSize != null)
-
-                  !_isDownloading ? InkWell(
-                      splashColor: Colors.transparent,
-                      onTap: (){
-                        _downloadAudioModal(context: context);
-                      },
-                      child: const MyIcon(size: 20, icon: MyIcons.download)
-                  ): Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      SizedBox(
-                        width: 35,
-                        height: 35,
-                        child: CircularProgressIndicator(
-                          value: _progress,
-                          strokeWidth: 3,
-                          backgroundColor: Colors.grey[300],
-                          valueColor: const AlwaysStoppedAnimation<Color>(
-                              primaryDark
+                ListenableBuilder(
+                  listenable: _downloadController,
+                  builder: (context, _) {
+                    if (_downloadController.hasDownload || widget.hymnSong.fileSize == null) {
+                      return const SizedBox.shrink();
+                    }
+                    if (!_downloadController.isDownloading) {
+                      return InkWell(
+                        splashColor: Colors.transparent,
+                        onTap: () => _openDownloadSheet(context),
+                        child: const MyIcon(size: 20, icon: MyIcons.download),
+                      );
+                    }
+                    return Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        SizedBox(
+                          width: 35,
+                          height: 35,
+                          child: CircularProgressIndicator(
+                            value: _downloadController.progress,
+                            strokeWidth: 3,
+                            backgroundColor: Colors.grey[300],
+                            valueColor: const AlwaysStoppedAnimation<Color>(primaryDark),
                           ),
                         ),
-                      ),
-                      Text(
-                        '${(_progress * 100).toInt()}%',
-                        style:TextStyle(
-                          fontSize: fontSizes.font10(context.screenSize),
-                          fontFamily: 'Poppins',
-                          fontWeight: FontWeight.bold,
-                          color: Colors.black87,
+                        Text(
+                          '${(_downloadController.progress * 100).toInt()}%',
+                          style: TextStyle(
+                            fontSize: fontSizes.font10(context.screenSize),
+                            fontFamily: 'Poppins',
+                            fontWeight: FontWeight.bold,
+                            color: Colors.black87,
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
-
-
-                InkWell(
-                  onTap:()async{
-
-                    if(widget.hymnSong.fileSize != null && _downloadedFiles.isNotEmpty){
-
-                      await Share.shareXFiles([XFile(_downloadedFiles[0].path)],subject: '${widget.hymnSong.title}', text: '${widget.hymnSong.title}   \n  \n ${widget.hymnSong.partitions!.map((song)=> "${getPartition(song.id)!.nameFr}\n ${song.lyrics} ${widget.hymnSong.hasOneProgression != 1  ?  song.chordProgression!.map((chord)=> "${chord.note}^${chord.duration}"): widget.hymnSong.singleChordProgression!.map((chord)=> "${chord.note}^${chord.duration}")}\n \n")}  \n  \n chantpouryehoshoua.org');
-
-                    }else{
-                      await Share.share('${widget.hymnSong.title}   \n  \n ${widget.hymnSong.partitions!.map((song)=> "${getPartition(song.id)!.nameFr}\n ${song.lyrics} ${widget.hymnSong.hasOneProgression != 1  ?  song.chordProgression!.map((chord)=> "${chord.note}^${chord.duration}"): widget.hymnSong.singleChordProgression!.map((chord)=> "${chord.note}^${chord.duration}")}\n \n")}  \n  \n chantpouryehoshoua.org', subject: widget.hymnSong.title);
-                    }
+                      ],
+                    );
                   },
-                  splashColor: Colors.transparent,
-                  child: const MyIcon(size: 20, icon: MyIcons.share),
                 ),
-
-
-
-
-                currentIndex == 0 ?  IconButton(onPressed: (){
-                  _showFontSettingsDialog();
-                }, icon: const Icon(Icons.font_download_outlined, size: 20)) :
-
-                PopupMenuButton<String>(
+                ListenableBuilder(
+                  listenable: _downloadController,
+                  builder: (context, _) {
+                    return InkWell(
+                      key: _shareButtonKey,
+                      onTap: () => _showShareSheet(context),
+                      splashColor: Colors.transparent,
+                      child: const MyIcon(size: 20, icon: MyIcons.share),
+                    );
+                  },
+                ),
+                currentIndex == 0
+                    ? IconButton(
+                  onPressed: () async {
+                    final result = await showReadingSettings(context: context, current: _readingSettings);
+                    if (result != null) setState(() => _readingSettings = result);
+                  },
+                  icon: const Icon(Icons.font_download_outlined, size: 20),
+                )
+                    : PopupMenuButton<String>(
                   iconColor: primary,
                   iconSize: 28,
                   surfaceTintColor: Colors.transparent,
@@ -946,258 +449,220 @@ int? find;
                     return noteScales.map((String letter) {
                       return PopupMenuItem<String>(
                         value: letter,
-                        child: Text(letter, style: TextStyle(color: letter == fromKey ? primary: dark, fontWeight: letter == fromKey ? FontWeight.bold:FontWeight.normal)),
+                        child: Text(letter,
+                            style: TextStyle(color: letter == fromKey ? primary : dark, fontWeight: letter == fromKey ? FontWeight.bold : FontWeight.normal)),
                       );
                     }).toList();
                   },
                   icon: const Icon(Icons.music_note_outlined, size: 20),
                 ),
-
               ],
-
             ),
           ),
         ),
-        body: buildHymnSongTab(useFrench: useFrench)
-
+        body: buildHymnSongTab(useFrench: useFrench),
       ),
     );
   }
 
+  Widget buildHymnSongTab({required bool useFrench}) {
+    return Consumer<AdminHymnBookProvider>(builder: (context, provider, child) {
+      if (provider.isLoading) {
+        return const Center(child: CircularProgressIndicator());
+      }
 
+      if (provider.error != null) {}
 
- Widget buildHymnSongTab({required bool useFrench}) {
-   return Consumer<AdminHymnBookProvider>(
+      if (provider.hymnSong == null) {
+        return provider.error != null ? Center(child: Text(provider.error!)) : const SizedBox();
+      }
 
-       builder: (context, provider, child) {
+      return TabBarView(
+        controller: _tabController,
+        children: [
+          Stack(
+            children: [
+              SingleChildScrollView(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    ListView.builder(
+                      padding: const EdgeInsets.only(top: 20, bottom: 160),
+                      physics: const NeverScrollableScrollPhysics(),
+                      shrinkWrap: true,
+                      itemCount: provider.hymnSong!.partitions!.length,
+                      itemBuilder: (context, index) {
+                        final partition = provider.hymnSong!.partitions![index];
+                        return _buildSongPartition(partition: partition, song: provider.hymnSong!, index: index);
+                      },
+                    ),
+                  ],
+                ),
+              ),
+              ListenableBuilder(
+                listenable: _downloadController,
+                builder: (context, _) {
+                  if (!_downloadController.hasDownload) return const SizedBox.shrink();
+                  return Positioned(
+                    bottom: 10,
+                    left: 5,
+                    right: 5,
+                    child: HymnAudioMiniPlayer(
+                      service: _audioService,
+                      file: _downloadController.downloadedFiles.last,
+                      title: widget.hymnSong.title!,
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
+          Stack(
+            children: [
+              SingleChildScrollView(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    provider.hymnSong!.hasOneProgression! != 1
+                        ? ListView(
+                      padding: const EdgeInsets.only(top: 20, bottom: 160),
+                      physics: const NeverScrollableScrollPhysics(),
+                      shrinkWrap: true,
+                      children: provider.hymnSong!.partitions!.map((song) {
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 20),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.start,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Padding(
+                                padding: const EdgeInsets.all(12),
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.start,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    _buildLabelPill(context, getPartition(song.id)!.nameFr),
+                                  ],
+                                ),
+                              ),
+                              song.chordProgression!.length > 1
+                                  ? SongChordsWidget(notes: song.chordProgression!, useFrench: useFrench, fromKey: fromKey!)
+                                  : const SizedBox(),
+                            ],
+                          ),
+                        );
+                      }).toList(),
+                    )
+                        : Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.start,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const SizedBox(height: 25),
+                          Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.start,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                _buildLabelPill(context, "Couplet et refrain"),
+                              ],
+                            ),
+                          ),
+                          SongChordsWidget(notes: provider.hymnSong!.singleChordProgression!, useFrench: useFrench, fromKey: fromKey!),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              ListenableBuilder(
+                listenable: _downloadController,
+                builder: (context, _) {
+                  if (!_downloadController.hasDownload) return const SizedBox.shrink();
+                  return Positioned(
+                    bottom: 10,
+                    left: 5,
+                    right: 5,
+                    child: HymnAudioMiniPlayer(
+                      service: _audioService,
+                      file: _downloadController.downloadedFiles.last,
+                      title: widget.hymnSong.title!,
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
+        ],
+      );
+    });
+  }
 
-         if (provider.isLoading) {
-           return const Center(child: CircularProgressIndicator());
-         }
+  Widget _buildSongPartition({required HymnPartition partition, required HymnSong song, required int index}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildLabelPill(context, getPartition(partition.id)!.nameFr),
+                SizedBox(height: context.screenSize.height * .035),
+                HymnLyricsItem(
+                  chordOverLyrics: song.hasChordOverLyrics!,
+                  lyrics: partition.lyrics,
+                  settings: _readingSettings,
+                  staggerIndex: index,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
-         if (provider.error != null) {
-
-         }
-
-         return provider.hymnSong != null ?
-         TabBarView(
-           controller: _tabController,
-           children: [
-
-             Stack(
-               children: [
-
-                 SingleChildScrollView(
-                   child: Column(
-                     mainAxisAlignment: MainAxisAlignment.start,
-                     crossAxisAlignment: CrossAxisAlignment.start,
-                     children: [
-                       ListView.builder(
-                         padding: const EdgeInsets.only(top: 20, bottom: 160),
-                         physics: const NeverScrollableScrollPhysics(),
-                         shrinkWrap: true,
-                         itemCount: provider.hymnSong!.partitions!.length,
-                         itemBuilder: (context, index) {
-                           final partition = provider.hymnSong!.partitions![index];
-                           return _buildSongPartition(partition:partition, song: provider.hymnSong!);
-                         },
-                       ),
-                     ],
-                   ),
-                 ),
-
-                 if(_downloadedFiles.isNotEmpty)
-
-                   Positioned(
-                       bottom: 10,
-                       left: 5,
-                       right: 5,
-                       child: _buildAudioControls()
-                   )
-
-               ],
-             ),
-
-
-             Stack(
-               children: [
-                 SingleChildScrollView(
-                   child: Column(
-                     mainAxisAlignment: MainAxisAlignment.start,
-                     crossAxisAlignment: CrossAxisAlignment.start,
-                     children: [
-
-                       provider.hymnSong!.hasOneProgression! != 1 ? ListView(
-                           padding: const EdgeInsets.only(top: 20, bottom: 160),
-
-                           physics: const NeverScrollableScrollPhysics(),
-                           shrinkWrap: true,
-                           children:  provider.hymnSong!.partitions!.map((song) {
-
-
-                             return Padding(
-                               padding: const EdgeInsets.symmetric(horizontal: 20),
-                               child: Column(
-                                 mainAxisAlignment: MainAxisAlignment.start,
-                                 crossAxisAlignment: CrossAxisAlignment.start,
-                                 children: [
-
-                                   Padding(
-                                     padding: const EdgeInsets.all(12),
-                                     child: Column(
-                                       mainAxisAlignment: MainAxisAlignment.start,
-                                       crossAxisAlignment: CrossAxisAlignment.start,
-                                       children: [
-
-
-                                         Container(
-                                           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
-                                           decoration: BoxDecoration(
-                                               gradient: const LinearGradient(colors: [Color(0xFF60C1C4), Color(0xFF088f97)]),
-                                               borderRadius: BorderRadius.circular(20)
-                                           ),
-                                           child: Text(
-                                               getPartition(song.id)!.nameFr,
-                                               style:TextStyle(fontFamily: 'Poppins',
-                                                   fontSize: FontSizes().font12(context.screenSize),
-                                                   letterSpacing: 1.2,
-                                                   height: 1, color: Colors.white,
-                                                   fontWeight: FontWeight.w500
-                                               )),
-                                         ),
-
-                                       ],
-                                     ),
-                                   ),
-
-                                   song.chordProgression!.length > 1 ? SongChordsWidget(notes: song.chordProgression!, useFrench: useFrench,fromKey: fromKey!) : const SizedBox(),
-                                 ],
-                               ),
-                             );
-
-                           }).toList()): Padding(
-                         padding: const EdgeInsets.symmetric(horizontal: 20),
-                         child: Column(
-                           mainAxisAlignment: MainAxisAlignment.start,
-                           crossAxisAlignment: CrossAxisAlignment.start,
-                           children: [
-
-                             const SizedBox(height: 25),
-
-                             Padding(
-                               padding: const EdgeInsets.all(12),
-                               child: Column(
-                                 mainAxisAlignment: MainAxisAlignment.start,
-                                 crossAxisAlignment: CrossAxisAlignment.start,
-                                 children: [
-
-
-                                   Container(
-                                     padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
-                                     decoration: BoxDecoration(
-                                       //  color: const Color(0xFF60C1C4),
-                                         gradient: const LinearGradient(colors: [Color(0xFF60C1C4), Color(0xFF088f97)]),
-                                         borderRadius: BorderRadius.circular(20)
-                                     ),
-                                     child: Text("Couplet et refrain",
-                                         style:TextStyle(
-                                             fontFamily: 'Poppins',
-                                             fontSize: FontSizes().font12(context.screenSize),
-                                             //letterSpacing: 1,
-                                             //height: 1,
-                                             color: Colors.white,
-                                             fontWeight: FontWeight.w500)
-                                     ),
-                                   ),
-
-                                 ],
-                               ),
-                             ),
-
-
-                             SongChordsWidget(notes:  provider.hymnSong!.singleChordProgression!, useFrench: useFrench,fromKey: fromKey!)
-
-                           ],
-                         ),
-                       ),
-
-                     ],
-                   ),
-                 ),
-
-                 if(_downloadedFiles.isNotEmpty)
-                   Positioned(
-                       bottom: 10,
-                       left: 5,
-                       right: 5,
-                       child: _buildAudioControls()
-                   )
-
-               ],
-             ),
-           ],
-         ):provider.isLoading ? const Expanded(child: Center(child: CircularProgressIndicator()))
-
-             : provider.error != null ? Center(child: Text(provider.error!)): const SizedBox();
-       });
- }
-
-
-
-
-
-
- Widget _buildSongPartition({required HymnPartition partition, required HymnSong song}) {
-
-   return Padding(
-     padding: const EdgeInsets.symmetric(horizontal: 20),
-     child: Column(
-       mainAxisAlignment: MainAxisAlignment.start,
-       crossAxisAlignment: CrossAxisAlignment.start,
-       children: [
-         Padding(
-           padding: const EdgeInsets.all(12),
-           child: Column(
-             mainAxisAlignment: MainAxisAlignment.start,
-             crossAxisAlignment: CrossAxisAlignment.start,
-             children: [
-               _buildSectionHeader(partition),
-               SizedBox(height: context.screenSize.height * .035),
-               HymnLyricsItem(
-                 chordOverLyrics: song.hasChordOverLyrics!,
-                 lyrics: partition.lyrics,
-               ),
-             ],
-           ),
-         ),
-       ],
-     ),
-   );
- }
-
- Widget _buildSectionHeader(song) {
-   return Container(
-     padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
-     decoration: BoxDecoration(
-       color: primaryDark,
-       borderRadius: BorderRadius.circular(20),
-     ),
-     child: Text(
-       getPartition(song.id)!.nameFr,
-       style: TextStyle(
-         fontFamily: 'Poppins',
-         fontSize: FontSizes().font12(context.screenSize),
-         letterSpacing: 1.2,
-         height: 1,
-         color: Colors.white,
-         fontWeight: FontWeight.w500,
-       ),
-     ),
-   );
- }
-
+  /// Verse-type pill — same soft chip regardless of type (couplet vs.
+  /// refrain no longer changes the fill color), with a small icon doing
+  /// the job color used to do: a repeat glyph for refrain, a note for
+  /// everything else. Matches the stat-chip language used on hymn/book
+  /// cards elsewhere (soft primaryLight fill, primary icon + text).
+  Widget _buildLabelPill(BuildContext context, String label) {
+    final isRefrain = label.toLowerCase().contains('refrain');
+    final icon = isRefrain ? Icons.repeat_rounded : Icons.music_note_rounded;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      decoration: BoxDecoration(
+        color: primaryLight,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: primary),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: TextStyle(
+              fontFamily: 'Poppins',
+              fontSize: FontSizes().font12(context.screenSize),
+              letterSpacing: 0.6,
+              height: 1,
+              color: primary,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
-
-
-
-
