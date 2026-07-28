@@ -18,6 +18,9 @@ class MyIcons {
   static const  hymnBookIcon = 'assets/icons/book_new.svg';
   static const  fileIcon = 'assets/icons/media.svg';
   static const  strongIcon = 'assets/icons/strong.svg';
+  static const  moreMenu = 'assets/icons/more_menu.svg';
+
+
   static const  moreVert = 'assets/icons/more_vert.svg';
 
 

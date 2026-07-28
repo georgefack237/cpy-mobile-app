@@ -1,12 +1,10 @@
 import 'package:cpy_app/utils/icons/myIcon.dart';
 import 'package:cpy_app/utils/icons/my_icons.dart';
-import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import '../../../core/notifications/push_notifications/firebase_push_notifications.dart';
 import '../../hymns/pages/hymn_books_page.dart';
-import '../../hymns/pages/poem_detail_page.dart';
-import '../../hymns/pages/widgets/hymn_song_details_page.dart';
 import '../../media/pages/media_page.dart';
+import '../../more/pages/more_screen.dart';
 import '../../strong/pages/strong_page.dart';
 import 'home_page.dart';
 
@@ -36,85 +34,34 @@ class _MainAppScreenState extends State<MainAppScreen> {
     const HymnBooksPage(),
     const MediaPage(),
     const StrongPage(),
+    const HelpPage(),
   ];
 
   @override
   void initState() {
     NotificationService.onMessage(context);
 
-  //  _saveNotificationToken();
-
-   /* FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) async {
-
-      var id = message.data['id'];
-      var page = message.data['page'];
-
-      if (id == 'update') {
-
-      } else if (page != null) {
-
-        if(page == 'poems'){
-
-          Navigator.push(context, MaterialPageRoute(builder: (context)=>  PoemDetailPage(id: message.data['id'] , title: '')));
-
-        } else if(page == 'songs'){
-
-          Navigator.push(context, MaterialPageRoute(builder: (context)=>  const HymnBooksPage()));
-
-          //Navigator.push(context, MaterialPageRoute(builder: (context)=>  HymnSongDetailsPage(songId:  message.data['id'] , hymnSong: null,)));
-
-        } else if(page == 'medias'){
-          Navigator.push(context, MaterialPageRoute(builder: (context)=>  const MediaPage()));
-
-        } else{
-          Navigator.push(context, MaterialPageRoute(builder: (context)=>  const StrongPage()));
-
-        }
-
-      } else if (message.data['page'] == 'tasks') {
-       // var taskId = message.data['id'].toString();
-       // Navigator.push(context, MaterialPageRoute(builder: (context) => TaskDetailsPage(fromNotification: true, taskId: taskId)));
-      } else if (message.data['page'] == 'contacts') {
-       // Navigator.push(context, MaterialPageRoute(builder: (context) => const ContactsHome(fromMenu: true)));
-      } else if(message.data['page'] == 'update_location'){
-
-
-      }
-    }); */
-
-
     _controller = PageController(initialPage: widget.index == null ? 0: widget.index!);
     super.initState();
   }
 
   void onTap(int index) {
-
-    if(index == 5){
-      if(!isLoading && !loading) {
-      }
-    }else{
-
-      if (_bottomNavIndex != index) {
-        _controller.jumpToPage(index);
-        setState(() {
-          _bottomNavIndex = index;
-        });
-      }
+    if (_bottomNavIndex != index) {
+      _controller.jumpToPage(index);
+      setState(() {
+        _bottomNavIndex = index;
+      });
     }
-
-
   }
 
 
   void navigateToScreen({required Widget screen}){
     Navigator.push(context, MaterialPageRoute(builder: (context) => screen));
-
   }
 
 
   @override
   Widget build(BuildContext context) {
-
 
     return Scaffold(
       key: _scaffoldKey,
@@ -146,7 +93,6 @@ class _MainAppScreenState extends State<MainAppScreen> {
               )
           ): Container()
 
-
         ],
       ),
 
@@ -166,7 +112,7 @@ class _MainAppScreenState extends State<MainAppScreen> {
                 fontSize: 12,
                 color: Colors.blue
             ),
-          
+
             unselectedLabelStyle: const TextStyle(
                 fontFamily: 'Poppins',
                 fontSize: 12,
@@ -177,7 +123,7 @@ class _MainAppScreenState extends State<MainAppScreen> {
             showUnselectedLabels: true,
             currentIndex: _bottomNavIndex,
             selectedItemColor: const Color(0xFF3B5898),
-          
+
             items: <BottomNavigationBarItem>[
 
               BottomNavigationBarItem(
@@ -187,7 +133,7 @@ class _MainAppScreenState extends State<MainAppScreen> {
                       color: _bottomNavIndex == 0 ? const Color(0xFF3B5898): Colors.grey
                   ),
                   label: "Accueil"),
-          
+
               BottomNavigationBarItem(
                   icon: MyIcon(
                       size: 20,
@@ -195,8 +141,8 @@ class _MainAppScreenState extends State<MainAppScreen> {
                       color: _bottomNavIndex == 1 ? const Color(0xFF3B5898): Colors.grey
                   ),
                   label: 'Recueils'),
-          
-          
+
+
               BottomNavigationBarItem(
                   icon: MyIcon(
                       size: 20,
@@ -212,6 +158,14 @@ class _MainAppScreenState extends State<MainAppScreen> {
                       color: _bottomNavIndex == 3 ? const Color(0xFF3B5898): Colors.grey
                   ),
                   label: 'Lexique'),
+
+              BottomNavigationBarItem(
+                  icon: MyIcon(
+                      size: 20,
+                      icon: MyIcons.moreMenu,
+                      color: _bottomNavIndex == 4 ? const Color(0xFF3B5898): Colors.grey
+                  ),
+                  label: 'Plus'),
 
             ],
             onTap: (value){
